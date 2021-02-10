@@ -9,4 +9,5 @@ This repo include SLiM3 (Haller and Messer, 2019) code to replicate our simulati
 - First, four populations of variable Ne (50, 100, 500 and 1000) accumulate mutations for 5000 generations (burn-in), followed by individuals selection to be translocated to an admixed population were they mate randomly. 
 
 ## References:
-Haller, B. C., & Messer, P. W. (2019). SLiM 3: forward genetic simulations beyond the Wright–Fisher model. Molecular biology and evolution, 36(3), 632-637.  Scott, P. A., Allison, L. J., Field, K. J., Averill-Murray, R. C., & Shaffer, H. B. (2020). Individual heterozygosity predicts translocation success in threatened desert tortoises. Science, 370(6520), 1086-1089.
+Haller, B. C., & Messer, P. W. (2019). SLiM 3: forward genetic simulations beyond the Wright–Fisher model. Molecular biology and evolution, 36(3), 632-637.<br/>
+Scott, P. A., Allison, L. J., Field, K. J., Averill-Murray, R. C., & Shaffer, H. B. (2020). Individual heterozygosity predicts translocation success in threatened desert tortoises. Science, 370(6520), 1086-1089.
