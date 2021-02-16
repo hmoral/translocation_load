@@ -23,7 +23,7 @@ initialize() {
 // fix =  fixed size for all populations
 // var = custom variable distribution, can be changed below
 	if (exists("distrMeta_in")==0){
-		defineConstant("distrMeta","var");
+		defineConstant("distrMeta","fix");
 	}
 	else{
 		defineConstant("distrMeta",distrMeta_in);
@@ -44,14 +44,24 @@ initialize() {
 // define translocation regime
 // 1: random
 // 2: diversity
-// 3: random		
+// 3: load
+// 4: load+diversity
+	
 	if (exists("trans_mode_in")==0){
-		defineConstant("trans_mode",1);
+		defineConstant("trans_mode",4);
 	}
 	else{
 		defineConstant("trans_mode",trans_mode_in);
 	}
 	
+// define translocation rate
+	if (exists("m_in")==0){
+		defineConstant("m",0.1);
+	}
+	else{
+		defineConstant("m",m_in);
+	}
+
 
 // define distribution of selection coefficients for deleterious mutations
 // fix: fixed s at -0.01
@@ -64,7 +74,7 @@ initialize() {
 	}
 	
 // this line creates a new vector with a prefix for output name that includes the variables choosen
-defineConstant("prefix","chr"+chrL+"_K"+nMetaPop+"_"+distrMeta+"Tdist"+"_Tmode"+trans_mode+"_"+s_distr+"Sdist");
+defineConstant("prefix","chr"+chrL+"_K"+nMetaPop+"_"+distrMeta+"Tdist"+"_Tmode"+trans_mode+"_"+s_distr+"Sdist"+"_"+ "mig"+m);
 
 // the model starts here	
 	initializeSLiMModelType("nonWF");
@@ -111,6 +121,26 @@ defineConstant("prefix","chr"+chrL+"_K"+nMetaPop+"_"+distrMeta+"Tdist"+"_Tmode"+
 
 
 }
+
+
+// random migration
+early() {
+	if(sim.generation<4999 & m > 0.0){
+		// random migration
+		nIndividuals = sum(sim.subpopulations.individualCount);
+		nMigrants = rpois(1, nIndividuals * m);
+		migrants = sample(sim.subpopulations.individuals, nMigrants);
+		
+		for (migrant in migrants)
+		{
+			do dest = sample(sim.subpopulations, 1);
+			while (dest == migrant.subpopulation);
+			
+			dest.takeMigrants(migrant);
+		}
+	}
+}
+
 
 // reproduction call to make a nonWF a WF model accrding to recepie 16.5 (random mating)
 reproduction() {
@@ -300,6 +330,93 @@ early()
 		sim.subpopulations[nMetaPop].tag=N_trans;
 		sim.subpopulations[0:(nMetaPop-1)].removeSubpopulation();
 	}
+
+	if(trans_mode==4){
+		Qload=0.3;
+		QUx=0.5;
+// calculate individual load and nucleotide diversity, this code is the same as the load regime	
+		migrants=c();
+		for (pop in 1:nMetaPop){
+			ALL_indv=sim.subpopulations[pop-1].individuals[sim.subpopulations[pop-1].individuals.age==0];
+			ALL_indv_pi=c();
+			ALL_indv_load=c();
+			for(indv in ALL_indv){
+				// Calculate the nucleotide heterozygosity of this individual
+				muts0 = indv.genomes[0].mutations;
+				muts1 = indv.genomes[1].mutations;
+				
+				// Count the shared mutations
+				shared_count = sum(match(muts0, muts1) >= 0);
+				
+				// All remaining mutations in the genomes are unshared (i.e. heterozygous)
+				unshared_count = muts0.size() + muts1.size() - 2 * shared_count;
+				
+				// pi is the mean heterozygosity across the chromosome
+				pi_ind = unshared_count / (sim.chromosome.lastPosition + 1);
+				ALL_indv_pi=c(ALL_indv_pi,pi_ind);
+				
+				muts0_m2=indv.genomes[0].mutationsOfType(m2);
+				muts1_m2=indv.genomes[1].mutationsOfType(m2);
+				
+				if(length(muts0_m2)+length(muts1_m2)>0){
+					HOMO_m2=setIntersection(muts0_m2,muts1_m2);
+					HETERO_m2=setSymmetricDifference(muts0_m2,muts1_m2);
+					IndvLoadM2_homo=sum(abs(HOMO_m2.selectionCoeff)*2);
+					IndvLoadM2_hetero=sum(abs(HETERO_m2.selectionCoeff)*m2.dominanceCoeff);
+					IndvLoadM2=abs(IndvLoadM2_homo+IndvLoadM2_hetero);
+					fit=1-IndvLoadM2;
+				} else { IndvLoadM2_homo=0;IndvLoadM2_hetero=0;IndvLoadM2=0;fit=1-IndvLoadM2;}
+				ALL_indv_load=c(ALL_indv_load,IndvLoadM2);
+			}		
+// retain indivduals with lower load			
+			ALL_indv_load_sorted=sort(ALL_indv_load);
+			loadTresh=ALL_indv_load_sorted[round((length(ALL_indv_load_sorted)-1)*Qload + 1)-1];
+			migrants_pop=ALL_indv[ALL_indv_load<=loadTresh];
+
+// calculate uniqueness index			
+			migrants_Ux=c();
+			for(indv in migrants_pop){
+				pop=indv.subpopulation.id;
+				Ux=sum(1-sim.mutationFrequencies(sim.subpopulations[pop-1],indv.uniqueMutationsOfType(m1)));
+				indv.setValue("Ux",Ux);
+				migrants_Ux=c(migrants_Ux,Ux);
+			}
+
+// retain indivduals with higher uniqueness			
+			Ux_sort=sort(migrants_pop.getValue("Ux"),ascending=F);
+			Ux_tresh=Ux_sort[round((length(Ux_sort)-1)*QUx + 1)-1];
+			migrants_pop=migrants_pop[migrants_pop.getValue("Ux")>=Ux_tresh];
+			migrants=c(migrants,migrants_pop);
+		}
+		Npops=sapply(sim.subpopulations, "mean(applyValue.individualCount);");
+
+// calculate sampling weight so smaller population have more chance to contribute migrants			
+		Nweights=1-Npops/sum(Npops);
+		for (indv in migrants){
+			indv.setValue("Nweight",Nweights[indv.subpopulation.id-1]);
+		}
+		migrants=sample(migrants,N_trans,weights=migrants.getValue("Nweight"));
+		print("/n"+"###########################");
+		print("Migrants from pops");
+		print(length(migrants));
+		print(unique(migrants.subpopulation.id));
+		print(length(unique(migrants.pedigreeGrandparentIDs)));
+		print(length(unique(migrants.pedigreeParentIDs)));
+		print(length(unique(migrants.pedigreeID)));
+		print("###########################"+"\n");
+
+		mig_id=migrants.index;
+		mig_pop=migrants.subpopulation.id;
+		mig_pedGrndP=length(unique(migrants.pedigreeGrandparentIDs));
+		mig_pedParents=length(unique(migrants.pedigreeParentIDs));
+		mig_pedIndv=length(unique(migrants.pedigreeID));
+		out=sim.generation + "\t" + mig_id + "\t" + mig_pop + "\t" + mig_pedGrndP + "\t" + mig_pedParents + "\t" + mig_pedIndv;
+		writeFile((DIR+"/slim_out_translocation_"+seed+"_"+prefix+".txt"),out,append=T);
+		sim.subpopulations[nMetaPop].takeMigrants(migrants);
+		sim.subpopulations[nMetaPop].tag=N_trans;
+		sim.subpopulations[0:(nMetaPop-1)].removeSubpopulation();
+	}
+
 }
 
 // print out some stats every generation
